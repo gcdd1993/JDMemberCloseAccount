@@ -17,3 +17,4 @@ logs
 # others
 code_pic.png
 ios_code_pic.png
+*.pyc
