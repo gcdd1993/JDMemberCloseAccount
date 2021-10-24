@@ -446,6 +446,7 @@ class JDMemberCloseAccount(object):
         time.sleep(1)
         self.member_close_count += 1
         INFO("本次运行已成功注销店铺会员数量为：", self.member_close_count)
+        time.sleep(3)
         return True
 
     def main(self):
