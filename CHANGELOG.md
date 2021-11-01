@@ -1,5 +1,11 @@
 ## Changelog
 
+## 2021-10-25
+
+- 修改检测jd_wstool连接失败exception处理
+- README增加websocket错误说明
+- 修复遇到店铺页面失效死循环问题
+
 ## 2021-10-24
 
 - 修改`config.yaml`中`shop.phone_tail_number`的配置说明

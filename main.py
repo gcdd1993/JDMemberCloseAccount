@@ -86,6 +86,8 @@ class JDMemberCloseAccount(object):
             elif self.ocr_cfg["type"] == "easyocr":
                 from captcha.easy_ocr import EasyOCR
                 self.easy_ocr = EasyOCR()
+        self.ws_conn_url = self.sms_captcha_cfg["ws_conn_url"]
+        self.ws_timeout = self.sms_captcha_cfg["ws_timeout"]
 
         # 初始化图形验证码配置
         if self.image_captcha_cfg["type"] == "cjy":
@@ -113,6 +115,8 @@ class JDMemberCloseAccount(object):
         self.need_skip_shops = []
         # 指定注销的店铺
         self.specify_shops = []
+        # 页面失效打不开的店铺
+        self.failure_store = []
 
     def get_code_pic(self, name='code_pic.png'):
         """
@@ -166,13 +170,16 @@ class JDMemberCloseAccount(object):
               "rYtvrCJZsZNu1ZJC4YG%3D%3D%22%2C%22openudid%22%3A%22C2HrYtvrCJZsZNu1ZJC4YG%3D%3D%22%7D%2C%22ciphertyp" \
               "e%22%3A5%2C%22version%22%3A%221.2.0%22%2C%22appname%22%3A%22com.jingdong.app.mall%22%7D&"
 
-        page_num = 5
+        page_num = 8
         var_name = locals()
         var_name["sign_page1"] = "st=1634992661020&sign=83a87e33d52a73c3abf01217af277d7c&sv=101"
         var_name["sign_page2"] = "st=1634992678131&sign=4da2fffa2375fd0f6f261ac70fcaad00&sv=102"
         var_name["sign_page3"] = "st=1634992682728&sign=83815a83dedef47c5f908269aca3926c&sv=100"
         var_name["sign_page4"] = "st=1634992686855&sign=f781c2707f70c8ffc98b28e091a56542&sv=121"
         var_name["sign_page5"] = "st=1634992688025&sign=15680ac47fb873561fc9f38ff2411a5e&sv=122"
+        var_name["sign_page6"] = "st=1635177469421&sign=f9180d4e3989a78d07bf2dd4a276508c&sv=102"
+        var_name["sign_page7"] = "st=1635177470330&sign=de73d5da876afa061c61068d987c5f40&sv=100"
+        var_name["sign_page8"] = "st=1635177471053&sign=3305e1cf5833274f46169b4b8a811f4e&sv=100"
 
         headers = {
             'Host': 'api.m.jd.com',
@@ -284,15 +291,13 @@ class JDMemberCloseAccount(object):
 
             # 加入黑名单缓存
             if card not in self.black_list_shops:
-                self.black_list_shops.append(card)
-                self.need_skip_shops.append(card["brandName"])
+                self.record_black_list(card)
             return False
         elif self.shop_cfg['phone_tail_number'] and phone[-4:] not in self.shop_cfg['phone_tail_number']:
             INFO("当前店铺绑定手机号为%s，尾号≠配置中设置的尾号，程序加入黑名单后自动跳过" % phone)
             # 加入黑名单缓存
             if card not in self.black_list_shops:
-                self.black_list_shops.append(card)
-                self.need_skip_shops.append(card["brandName"])
+                self.record_black_list(card)
             return False
 
         # 发送短信验证码
@@ -305,9 +310,8 @@ class JDMemberCloseAccount(object):
             (By.XPATH, "//div[text()='发送成功']")
         ), f'发送失败，黑店【{card["brandName"]}】跳过')
 
-        # 要连接的websocket地址
+        # 验证码
         sms_code = ""
-        ws_conn_url, ws_timeout = self.sms_captcha_cfg["ws_conn_url"], self.sms_captcha_cfg["ws_timeout"]
 
         # ocr识别投屏验证码
         if self.sms_captcha_cfg["is_ocr"]:
@@ -332,7 +336,7 @@ class JDMemberCloseAccount(object):
         else:
             try:
                 if self.sms_captcha_cfg["jd_wstool"]:
-                    recv = asyncio.get_event_loop().run_until_complete(ws_conn(ws_conn_url, ws_timeout))
+                    recv = asyncio.get_event_loop().run_until_complete(ws_conn(self.ws_conn_url, self.ws_timeout))
                 else:
                     recv = self.sms.get_code()
 
@@ -341,8 +345,11 @@ class JDMemberCloseAccount(object):
                     return False
                 else:
                     sms_code = json.loads(recv)["sms_code"]
+            except OSError:
+                WARN("WebSocket监听时发生了问题，请检查是否开启外部jd_wstool工具或者使用内置的jd_wstool或者5201端口是否开放")
+                sys.exit(1)
             except Exception as e:
-                WARN("WebSocket监听时发生了问题", e.args)
+                WARN(e.__class__, e.args)
                 sys.exit(1)
 
         # 输入短信验证码
@@ -473,15 +480,34 @@ class JDMemberCloseAccount(object):
 
         time.sleep(1)
         self.member_close_count += 1
-        if card in self.black_list_shops:
-            self.black_list_shops.remove(card)
-        if card["brandName"] in self.need_skip_shops:
-            self.need_skip_shops.remove(card["brandName"])
+        self.remove_black_list(card)
         if card["brandName"] in self.specify_shops:
             self.specify_shops.remove(card["brandName"])
         INFO("👌 本次运行已成功注销店铺会员数量为：", self.member_close_count)
         time.sleep(3)
         return True
+
+    def record_black_list(self, card):
+        """
+        记录黑名单店铺
+        :param card:
+        :return:
+        """
+        if card not in self.black_list_shops:
+            self.black_list_shops.append(card)
+        if card["brandName"] not in self.need_skip_shops:
+            self.need_skip_shops.append(card["brandName"])
+
+    def remove_black_list(self, card):
+        """
+        移除黑名单店铺
+        :param card:
+        :return:
+        """
+        if card in self.black_list_shops:
+            self.black_list_shops.remove(card)
+        if card["brandName"] in self.need_skip_shops:
+            self.need_skip_shops.remove(card["brandName"])
 
     def main(self):
         # 打开京东
@@ -584,6 +610,7 @@ class JDMemberCloseAccount(object):
                 # 判断该店铺是否要跳过
                 if card["brandName"] in self.need_skip_shops:
                     INFO("发现指定需要跳过的店铺，跳过", card["brandName"])
+                    self.record_black_list(card)
                     continue
 
                 try:
@@ -599,13 +626,16 @@ class JDMemberCloseAccount(object):
                         WebDriverWait(self.browser, 1).until(EC.presence_of_element_located(
                             (By.XPATH, "//p[text()='网络请求失败']")
                         ))
-                        INFO("当前店铺退会链接已失效，暂判定为缓存导致，正在执行清除卡包列表缓存策略")
-                        if self.refresh_cache():
-                            INFO("理论上缓存已经刷新成功，如项目未继续执行请及时反馈")
-                            break
+                        INFO("当前店铺退会链接已失效(缓存导致)，执行清除卡包列表缓存策略后跳过")
+
+                        if card["brandName"] in self.failure_store:
+                            self.record_black_list(card)
+                            self.failure_store.remove(card["brandName"])
+                            INFO("当前店铺页面仍然失效，程序加入黑名单后自动跳过")
+                            continue
                         else:
-                            INFO("卡包列表缓存清除失败，即将跳过该店铺，失效店铺链接为：")
-                            INFO("https://shopmember.m.jd.com/member/memberCloseAccount?venderId=" + card["brandId"])
+                            self.failure_store.append(card["brandName"])
+                            self.refresh_cache()
                             continue
                     except Exception as _:
                         pass
