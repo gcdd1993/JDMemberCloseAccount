@@ -5,7 +5,7 @@ debug: false
 # selenium 相关
 # selenium.browserType: 浏览器类型
 # selenium.headless: 无头模式，建议默认设置
-# selenium.binary: 可执行路径，如果驱动没有找到浏览器的话需要你手动配置
+# selenium.binary: 可执行路径，如果驱动没有找到浏览器的话需要你手动配置，路径 “\” 符号注意转义需要写成 "\\"
 # selenium.timeout: selenium操作超时时间，超过会跳过当前店铺，进行下一个店铺，默认为30秒
 # selenium.check_wait: selenium操作发送验证码和校验是否成功注销的等待时间，目的是跳过黑店，默认3秒
 selenium:
@@ -21,6 +21,7 @@ selenium:
 # shop.phone_tail_number: 手机后4位尾号，若填写将会校验店铺尾号是否是规定的，不符合就跳过，支持多手机号，格式为["0123","1234"]
 # shop.member_close_max_number: 设置本次运行注销的最大店铺数，默认为0，代表不限制
 # shop.wait_refresh_time: 乱码店铺挂载时间，默认为挂31分钟，可自行调整
+# shop.add_remote_shop_data: 添加远端店铺数据，默认开启，如需关闭请设置为false，该设置需要更新至最新的macrodroid配置
 shop:
   skip_shops:
     - "李宁品牌VIP"
@@ -28,18 +29,21 @@ shop:
   phone_tail_number: [ ]
   member_close_max_number: 0
   wait_refresh_time: 1
+  add_remote_shop_data: true
 
 # sms_captcha 短信验证码相关
 # sms_captcha.is_ocr: 是否开启OCR模式，IOS设备必须开启，安卓非必须
 # sms_captcha.jd_wstool: 是否调用jd_wstool工具监听验证码，默认为开启，如果不想开启，设置为false会调用内置websocket监听
 # sms_captcha.ws_conn_url: websocket链接地址，不用动
 # sms_captcha.ws_timeout: websocket接收验证码时间超时时间，超时会跳过当前店铺，进行下一个店铺，默认为60秒
-# sms_captcha.ocr.type: ocr的类型，可选：baidu、aliyun、easyocr
+# sms_captcha.ocr.type: ocr的类型，可选：baidu、aliyun、easyocr、baidu_fanyi
 # sms_captcha.ocr.ocr_range: 需要截取的投屏区域的验证码左上角和右下角坐标，顺序依次是 [左x,左y,右x,右y]，如[1,2,3,4]
 # sms_captcha.ocr.ocr_delay_time: OCR识别的延迟时间，如果没识别到就几秒后再次尝试，默认为5
 # sms_captcha.ocr.baidu_app_id: 百度通用文字识别应用的`app_id`
 # sms_captcha.ocr.baidu_api_key: 百度通用文字识别应用的`api_key`
 # sms_captcha.ocr.baidu_secret_key: 百度通用文字识别应用的`secret_key`
+# sms_captcha.ocr.baidu_fanyi_appid: 百度翻译图片翻译的`app_id`
+# sms_captcha.ocr.baidu_fanyi_appkey: 百度翻译图片翻译的`秘钥`
 # sms_captcha.ocr.aliyun_appcode: 阿里云通用文字识别应用的`AppCode`
 sms_captcha:
   is_ocr: false
@@ -53,6 +57,8 @@ sms_captcha:
     baidu_app_id: ""
     baidu_api_key: ""
     baidu_secret_key: ""
+    baidu_fanyi_appid: ""
+    baidu_fanyi_appkey: ""
     aliyun_appcode: ""
 
 # image_captcha 图形验证码相关

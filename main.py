@@ -14,6 +14,8 @@ from captcha.jd_captcha import JDcaptcha_base64
 from captcha.jd_yolo_captcha import JDyolocaptcha
 from utils.logger import Log
 from utils.config import get_config
+from utils.validator import verify_configuration
+from utils.version import check_version
 from utils.selenium_browser import get_browser
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
@@ -55,6 +57,16 @@ class JDMemberCloseAccount(object):
 
     def __init__(self):
         INFO("欢迎执行JD全自动退会程序，如有使用问题请加TG群https://t.me/jdMemberCloseAccount进行讨论")
+        INFO("↓  " * 30)
+
+        # 检查版本
+        INFO("开始检查项目是否有更新")
+        check_version(logger)
+
+        # 检查配置
+        INFO("开始检查项目配置完整性")
+        verify_configuration(logger)
+
         # 初始化基础配置
         self.config = get_config()
         self.selenium_cfg = get_config()["selenium"]
@@ -62,6 +74,7 @@ class JDMemberCloseAccount(object):
         self.sms_captcha_cfg = get_config()["sms_captcha"]
         self.image_captcha_cfg = get_config()["image_captcha"]
         self.ocr_cfg = self.sms_captcha_cfg["ocr"]
+        self.debug = self.config["debug"]
 
         # 初始化selenium配置
         self.browser = get_browser(self.config)
@@ -74,18 +87,22 @@ class JDMemberCloseAccount(object):
                 from utils.listener import SmsSocket
                 self.sms = SmsSocket()
         elif self.sms_captcha_cfg["is_ocr"]:
-            if self.ocr_cfg["type"] == "":
+            self.ocr_type = self.ocr_cfg["type"]
+            if self.ocr_type == "":
                 WARN("当前已开启OCR模式，但是并未选择OCR类型，请在config.yaml补充ocr.type")
                 sys.exit(1)
-            if self.ocr_cfg["type"] == "baidu":
+            if self.ocr_type == "baidu":
                 from captcha.baidu_ocr import BaiduOCR
-                self.baidu_ocr = BaiduOCR(self.ocr_cfg)
-            elif self.ocr_cfg["type"] == "aliyun":
+                self.baidu_ocr = BaiduOCR(self.ocr_cfg, self.debug)
+            elif self.ocr_type == "aliyun":
                 from captcha.aliyun_ocr import AliYunOCR
-                self.aliyun_ocr = AliYunOCR(self.ocr_cfg)
-            elif self.ocr_cfg["type"] == "easyocr":
+                self.aliyun_ocr = AliYunOCR(self.ocr_cfg, self.debug)
+            elif self.ocr_type == "easyocr":
                 from captcha.easy_ocr import EasyOCR
-                self.easy_ocr = EasyOCR()
+                self.easy_ocr = EasyOCR(self.debug)
+            elif self.ocr_type == "baidu_fanyi":
+                from captcha.baidu_fanyi import BaiduFanYi
+                self.baidu_fanyi = BaiduFanYi(self.ocr_cfg, self.debug)
         self.ws_conn_url = self.sms_captcha_cfg["ws_conn_url"]
         self.ws_timeout = self.sms_captcha_cfg["ws_timeout"]
 
@@ -117,6 +134,8 @@ class JDMemberCloseAccount(object):
         self.specify_shops = []
         # 页面失效打不开的店铺
         self.failure_store = []
+        # 云端数据执行状态
+        self.add_remote_shop_data = self.shop_cfg["add_remote_shop_data"]
 
     def get_code_pic(self, name='code_pic.png'):
         """
@@ -324,15 +343,19 @@ class JDMemberCloseAccount(object):
                 INFO("刚发短信，%d秒后识别验证码" % ocr_delay_time)
                 time.sleep(ocr_delay_time)
 
-                if self.ocr_cfg["type"] == "baidu":
+                if self.ocr_type == "baidu":
                     INFO("开始调用百度OCR识别")
                     sms_code = self.baidu_ocr.baidu_ocr(_range, ocr_delay_time)
-                elif self.ocr_cfg["type"] == "aliyun":
+                elif self.ocr_type == "aliyun":
                     INFO("开始调用阿里云OCR识别")
                     sms_code = self.aliyun_ocr.aliyun_ocr(_range, ocr_delay_time)
-                elif self.ocr_cfg["type"] == "easyocr":
+                elif self.ocr_type == "easyocr":
                     INFO("开始调用EasyOCR识别")
                     sms_code = self.easy_ocr.easy_ocr(_range, ocr_delay_time)
+                elif self.ocr_type == "baidu_fanyi":
+                    INFO("开始调用百度翻译识别")
+                    sms_code = self.baidu_fanyi.baidu_fanyi(_range, ocr_delay_time)
+                INFO("验证码识别结果为：", sms_code)
         else:
             try:
                 if self.sms_captcha_cfg["jd_wstool"]:
@@ -345,6 +368,7 @@ class JDMemberCloseAccount(object):
                     return False
                 else:
                     sms_code = json.loads(recv)["sms_code"]
+                INFO("验证码监听结果为：", sms_code)
             except OSError:
                 WARN("WebSocket监听时发生了问题，请检查是否开启外部jd_wstool工具或者使用内置的jd_wstool或者5201端口是否开放")
                 sys.exit(1)
@@ -509,6 +533,26 @@ class JDMemberCloseAccount(object):
         if card["brandName"] in self.need_skip_shops:
             self.need_skip_shops.remove(card["brandName"])
 
+    def get_cloud_shop_ids(self):
+        """
+        获取云端店铺列表
+        :return:
+        """
+        if not self.add_remote_shop_data:
+            return True, []
+
+        url = "https://gitee.com/yqchilde/Scripts/raw/main/jd/shop.json"
+        try:
+            resp = requests.get(url, timeout=60).json()
+            if "该内容无法显示" in resp:
+                return self.get_cloud_shop_ids()
+
+            INFO("获取到云端商铺信息 %d 条" % len(resp))
+            self.add_remote_shop_data = False
+            return False, resp
+        except Exception as e:
+            ERROR("获取云端列表发生了一点小问题：", e.args)
+
     def main(self):
         # 打开京东
         self.browser.get("https://m.jd.com/")
@@ -541,8 +585,11 @@ class JDMemberCloseAccount(object):
             # 执行一遍刷新接口
             self.refresh_cache()
 
-            # 获取店铺列表
-            card_list = self.get_shop_cards()
+            state, card_list = self.get_cloud_shop_ids()
+            if state:
+                # 获取店铺列表
+                card_list = self.get_shop_cards()
+
             if len(card_list) == 0:
                 INFO("🎉 本次运行获取到的店铺数为0个，判断为没有需要注销的店铺，即将退出程序")
                 sys.exit(0)
@@ -595,7 +642,7 @@ class JDMemberCloseAccount(object):
                 continue
 
             INFO("🧐 本轮运行获取到", len(card_list), "家店铺会员信息")
-            for card in card_list:
+            for idx, card in enumerate(card_list):
                 # 判断本次运行数是否达到设置
                 if self.member_close_max_number != 0 and self.member_close_count >= self.member_close_max_number:
                     INFO("已注销店铺数达到配置中允许注销的最大次数，程序退出")
@@ -615,7 +662,11 @@ class JDMemberCloseAccount(object):
 
                 try:
                     # 打开注销页面
-                    INFO("开始注销店铺", card["brandName"])
+                    if "shopName" in card:
+                        INFO("开始注销第 %d 家 -> 店铺名: %s 品牌会员名: %s" % (idx + 1, card["shopName"], card["brandName"]))
+                    else:
+                        INFO("开始注销第 %d 家 -> 店铺名: %s 品牌会员名: %s" % (idx + 1, "未知店铺", card["brandName"]))
+
                     self.browser.get(
                         "https://shopmember.m.jd.com/member/memberCloseAccount?venderId=" + card["brandId"]
                     )
@@ -626,6 +677,12 @@ class JDMemberCloseAccount(object):
                         WebDriverWait(self.browser, 1).until(EC.presence_of_element_located(
                             (By.XPATH, "//p[text()='网络请求失败']")
                         ))
+
+                        # 云端列表失效页面无需黑名单处理
+                        if not state:
+                            INFO("非当前店铺会员，跳过")
+                            continue
+
                         INFO("当前店铺退会链接已失效(缓存导致)，执行清除卡包列表缓存策略后跳过")
 
                         if card["brandName"] in self.failure_store:
@@ -646,7 +703,7 @@ class JDMemberCloseAccount(object):
                 except Exception as e:
                     ERROR("发生了一点小问题：", e.args)
 
-                    if self.config["debug"]:
+                    if self.debug:
                         import traceback
                         traceback.print_exc()
 
