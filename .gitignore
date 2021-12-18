@@ -1,6 +1,7 @@
 # Pycharm
 __pycharm__
 .idea/*
+*/__pycache__*
 
 # venv
 venv
@@ -16,5 +17,4 @@ logs
 
 # others
 code_pic.png
-ios_code_pic.png
-*.pyc
+captcha_screenshot.png
